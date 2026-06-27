@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}地圖顯示{% endblock %}
+{% block head_extra %}
+<style>
+#map { height: 600px; }
+.leaflet-popup-content { font-family: "PingFang TC",sans-serif; font-size:13px; color:#333; }
+.leaflet-popup-content h4 { margin:0 0 4px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>🗺️ 河川監測地圖</h2>
+  <span class="breadcrumb">監測 / 地圖</span>
+</div>
+<div id="map"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(async () => {
+  const map = L.map('map').setView([24.88, 121.40], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap',
+    maxZoom: 19,
+  }).addTo(map);
+
+  const res = await fetch('/api/stations');
+  const data = await res.json();
+
+  const statusColors = { online: '#5DAD65', offline: '#8B95A5', maintenance: '#E8833A' };
+  const statusIcons = { online: '🟢', offline: '⚫', maintenance: '🟠' };
+
+  for (const s of data.stations) {
+    // 獲取該站最新數據
+    const dr = await fetch(`/api/data?station_id=${s.id}&hours=6`);
+    const dd = await dr.json();
+    const latest = dd.data.length > 0 ? dd.data[dd.data.length - 1] : null;
+
+    let popupHtml = `<h4>${s.name}</h4>
+      <p>河川: ${s.river_name}<br>編號: ${s.code}<br>狀態: ${s.status}</p>`;
+    if (latest) {
+      popupHtml += `<p>水溫: ${latest.temperature!=null?latest.temperature+'°C':'-'}
+      | pH: ${latest.ph!=null?latest.ph:'-'}<br>
+      濁度: ${latest.turbidity!=null?latest.turbidity+' NTU':'-'}
+      | 溶氧: ${latest.dissolved_oxygen!=null?latest.dissolved_oxygen+' mg/L':'-'}<br>
+      電量: ${latest.battery!=null?latest.battery+'%':'-'}<br>
+      <small>${new Date(latest.recorded_at).toLocaleString('zh-TW')}</small></p>`;
+    }
+
+    L.circleMarker([s.latitude, s.longitude], {
+      radius: 10,
+      fillColor: statusColors[s.status] || '#8B95A5',
+      color: '#fff',
+      weight: 2,
+      fillOpacity: 0.9,
+    }).addTo(map)
+      .bindPopup(popupHtml)
+      .bindTooltip(s.name, { direction: 'top', offset: [0, -12] });
+  }
+})();
+</script>
+{% endblock %}

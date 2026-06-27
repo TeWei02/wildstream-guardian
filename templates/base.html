@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}野溪守護者{% endblock %} — Wildstream Guardian</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  {% block head_extra %}{% endblock %}
+</head>
+<body>
+
+<!-- 側邊導航 -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <span class="logo-icon">🌊</span>
+    <h1>野溪守護者</h1>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/" class="nav-item {% if request.url.path == '/' %}active{% endif %}">
+      <span class="nav-icon">📊</span> <span>儀表板</span>
+    </a>
+    <a href="/stations" class="nav-item {% if request.url.path == '/stations' %}active{% endif %}">
+      <span class="nav-icon">📍</span> <span>監測站管理</span>
+    </a>
+    <a href="/realtime" class="nav-item {% if request.url.path == '/realtime' %}active{% endif %}">
+      <span class="nav-icon">📡</span> <span>實時數據</span>
+    </a>
+    <a href="/alerts" class="nav-item {% if request.url.path == '/alerts' %}active{% endif %}">
+      <span class="nav-icon">🔔</span> <span>警報系統</span>
+    </a>
+    <a href="/map" class="nav-item {% if request.url.path == '/map' %}active{% endif %}">
+      <span class="nav-icon">🗺️</span> <span>地圖顯示</span>
+    </a>
+    <a href="/history" class="nav-item {% if request.url.path == '/history' %}active{% endif %}">
+      <span class="nav-icon">📈</span> <span>歷史趨勢</span>
+    </a>
+    <a href="/devices" class="nav-item {% if request.url.path == '/devices' %}active{% endif %}">
+      <span class="nav-icon">🔧</span> <span>設備管理</span>
+    </a>
+    <a href="/export" class="nav-item {% if request.url.path == '/export' %}active{% endif %}">
+      <span class="nav-icon">📥</span> <span>數據導出</span>
+    </a>
+    <a href="/shop" class="nav-item {% if request.url.path == '/shop' %}active{% endif %}">
+      <span class="nav-icon">🛒</span> <span>守護者商城</span>
+    </a>
+    <a href="/feedback" class="nav-item {% if request.url.path == '/feedback' %}active{% endif %}">
+      <span class="nav-icon">💬</span> <span>用戶反饋</span>
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    野溪守護者 v1.0<br>© 2024 Wildstream Guardian
+  </div>
+</aside>
+
+<!-- 主內容 -->
+<main class="main-content">
+  {% block content %}{% endblock %}
+</main>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

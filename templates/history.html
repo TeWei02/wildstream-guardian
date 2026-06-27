@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}歷史趨勢{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>📈 歷史趨勢分析</h2>
+  <span class="breadcrumb">監測 / 歷史趨勢</span>
+</div>
+
+<div class="filter-bar">
+  <select class="form-control" id="hist-station" onchange="loadHistory()">
+    <option value="">選擇監測站</option>
+  </select>
+  <select class="form-control" id="hist-hours" onchange="loadHistory()">
+    <option value="24">24 小時</option>
+    <option value="72">3 天</option>
+    <option value="168" selected>7 天</option>
+    <option value="720">30 天</option>
+  </select>
+  <select class="form-control" id="hist-param" onchange="loadHistory()">
+    <option value="temperature">水溫</option>
+    <option value="ph">pH 值</option>
+    <option value="turbidity">濁度</option>
+    <option value="dissolved_oxygen">溶氧</option>
+    <option value="conductivity">導電度</option>
+    <option value="ammonia_nitrogen">氨氮</option>
+    <option value="total_phosphorus">總磷</option>
+  </select>
+</div>
+
+<div id="stats-summary" style="display:none;margin-bottom:16px;">
+  <div class="kpi-grid" id="stats-kpi"></div>
+</div>
+
+<div class="chart-container">
+  <h3 id="chart-title">趨勢圖</h3>
+  <canvas id="historyChart"></canvas>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let chart = null;
+const paramLabels = {
+  temperature:'水溫 (°C)', ph:'pH 值', turbidity:'濁度 (NTU)',
+  dissolved_oxygen:'溶氧 (mg/L)', conductivity:'導電度 (µS/cm)',
+  ammonia_nitrogen:'氨氮 (mg/L)', total_phosphorus:'總磷 (mg/L)'
+};
+
+async function init() {
+  const res = await fetch('/api/stations');
+  const d = await res.json();
+  const sel = document.getElementById('hist-station');
+  d.stations.forEach(s => sel.innerHTML += `<option value="${s.id}">${s.name}</option>`);
+  if (d.stations.length > 0) {
+    sel.value = d.stations[0].id;
+    loadHistory();
+  }
+}
+
+async function loadHistory() {
+  const sid = document.getElementById('hist-station').value;
+  const hours = document.getElementById('hist-hours').value;
+  const param = document.getElementById('hist-param').value;
+  if (!sid) return;
+
+  const [dataRes, statsRes] = await Promise.all([
+    fetch(`/api/data?station_id=${sid}&hours=${hours}`),
+    fetch(`/api/stats?station_id=${sid}&hours=${hours}`)
+  ]);
+  const d = await dataRes.json();
+  const st = await statsRes.json();
+
+  document.getElementById('chart-title').textContent = `${paramLabels[param] || param} — 歷史趨勢`;
+
+  // 統計摘要
+  const s = st.stats[param];
+  if (s) {
+    document.getElementById('stats-summary').style.display = 'block';
+    document.getElementById('stats-kpi').innerHTML = `
+      <div class="kpi-card green"><span class="kpi-label">最小值</span><span class="kpi-value">${s.min!=null?s.min:'-'}</span></div>
+      <div class="kpi-card blue"><span class="kpi-label">平均值</span><span class="kpi-value">${s.avg!=null?s.avg:'-'}</span></div>
+      <div class="kpi-card orange"><span class="kpi-label">最大值</span><span class="kpi-value">${s.max!=null?s.max:'-'}</span></div>
+      <div class="kpi-card"><span class="kpi-label">數據筆數</span><span class="kpi-value">${s.count}</span></div>
+    `;
+  }
+
+  // 圖表
+  if (chart) chart.destroy();
+  const labels = d.data.map(r => new Date(r.recorded_at).toLocaleDateString('zh-TW',{month:'numeric',day:'numeric'})+' '+new Date(r.recorded_at).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}));
+  const vals = d.data.map(r => r[param]);
+  const ctx = document.getElementById('historyChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: paramLabels[param]||param, data: vals,
+        borderColor: '#3A9BD5', backgroundColor: 'rgba(58,155,213,0.08)',
+        fill: true, tension: 0.3, pointRadius: 1,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#8B95A5' } } },
+      scales: {
+        x: { ticks: { color: '#8B95A5', maxTicksLimit: 15 }, grid: { color: '#2A3A4A' } },
+        y: { ticks: { color: '#8B95A5' }, grid: { color: '#2A3A4A' } }
+      }
+    }
+  });
+}
+
+init();
+</script>
+{% endblock %}

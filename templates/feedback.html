@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}用戶反饋{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>💬 用戶反饋</h2>
+  <button class="btn btn-primary" onclick="showFeedbackForm()">+ 提交反饋</button>
+</div>
+
+<div class="grid-2">
+  <!-- 反饋表單 -->
+  <div id="feedback-form" class="glass-card" style="display:none;">
+    <h3 style="margin-bottom:16px;">提交反饋</h3>
+    <div class="form-group"><label>姓名</label><input class="form-control" id="fb-name" placeholder="您的姓名"></div>
+    <div class="form-group"><label>Email</label><input class="form-control" id="fb-email" type="email" placeholder="your@email.com"></div>
+    <div class="form-group">
+      <label>類別</label>
+      <select class="form-control" id="fb-category">
+        <option value="general">一般建議</option><option value="bug">問題回報</option><option value="feature">功能建議</option><option value="other">其他</option>
+      </select>
+    </div>
+    <div class="form-group"><label>主旨</label><input class="form-control" id="fb-subject" placeholder="簡述您的反饋"></div>
+    <div class="form-group"><label>詳細說明</label><textarea class="form-control" id="fb-message" rows="4" placeholder="請詳細描述…"></textarea></div>
+    <button class="btn btn-success" onclick="submitFeedback()">送出反饋</button>
+    <button class="btn btn-outline" style="margin-left:8px;" onclick="hideFeedbackForm()">取消</button>
+  </div>
+
+  <!-- 反饋列表 -->
+  <div style="grid-column: 1 / -1;" id="feedback-list-container">
+    <div class="filter-bar">
+      <select class="form-control" id="fb-filter-cat" onchange="loadFeedback()">
+        <option value="">全部分類</option><option value="general">一般建議</option><option value="bug">問題回報</option><option value="feature">功能建議</option><option value="other">其他</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);">
+        <input type="checkbox" id="fb-unresolved" onchange="loadFeedback()"> 僅顯示未處理
+      </label>
+    </div>
+    <div id="feedback-list"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showFeedbackForm() { document.getElementById('feedback-form').style.display = 'block'; }
+function hideFeedbackForm() { document.getElementById('feedback-form').style.display = 'none'; }
+
+async function submitFeedback() {
+  const body = {
+    user_name: document.getElementById('fb-name').value || '匿名',
+    email: document.getElementById('fb-email').value,
+    category: document.getElementById('fb-category').value,
+    subject: document.getElementById('fb-subject').value,
+    message: document.getElementById('fb-message').value,
+  };
+  if (!body.subject || !body.message) { alert('請填寫主旨和詳細說明'); return; }
+  await fetch('/api/feedback', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  hideFeedbackForm();
+  loadFeedback();
+}
+
+async function loadFeedback() {
+  const cat = document.getElementById('fb-filter-cat').value;
+  const unresolved = document.getElementById('fb-unresolved').checked;
+  let url = '/api/feedback';
+  const params = [];
+  if (cat) params.push('category=' + cat);
+  if (unresolved) params.push('is_resolved=false');
+  if (params.length) url += '?' + params.join('&');
+
+  const res = await fetch(url);
+  const d = await res.json();
+  const catLabels = { general:'一般建議', bug:'問題回報', feature:'功能建議', other:'其他' };
+
+  const list = document.getElementById('feedback-list');
+  if (d.feedback.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">📝</div><div>尚無反饋</div></div>';
+    return;
+  }
+
+  list.innerHTML = d.feedback.map(f => `
+    <div class="glass-card" style="margin-bottom:10px;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:start;">
+        <div style="flex:1;">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+            <strong>${f.user_name}</strong>
+            <span class="badge" style="background:rgba(58,155,213,0.15);color:var(--stream-blue);">${catLabels[f.category]||f.category}</span>
+            ${f.is_resolved ? '<span class="badge badge-success" style="background:rgba(93,173,101,0.15);color:var(--eco-green);">已處理</span>' : '<span class="badge badge-warning">未處理</span>'}
+          </div>
+          <div style="font-weight:600;margin-bottom:4px;">${f.subject}</div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">${f.message}</div>
+          <div style="font-size:11px;color:var(--text-secondary);">${f.email} | ${new Date(f.created_at).toLocaleString('zh-TW')}</div>
+        </div>
+        ${!f.is_resolved ? `<button class="btn btn-sm btn-outline" onclick="resolveFeedback(${f.id})">標記已處理</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function resolveFeedback(id) {
+  await fetch(`/api/feedback/${id}/resolve`, { method: 'PUT' });
+  loadFeedback();
+}
+
+loadFeedback();
+</script>
+{% endblock %}

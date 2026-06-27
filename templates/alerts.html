@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}警報系統{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>🔔 警報系統</h2>
+  <div style="display:flex;gap:8px;">
+    <button class="btn btn-outline" onclick="markAllRead()">全部標記已讀</button>
+  </div>
+</div>
+
+<div class="filter-bar">
+  <select class="form-control" id="type-filter" onchange="loadAlerts()">
+    <option value="">全部類型</option>
+    <option value="pollution">污染警報</option>
+    <option value="abnormal_ph">pH 異常</option>
+    <option value="low_battery">低電量</option>
+    <option value="low_oxygen">溶氧過低</option>
+  </select>
+  <select class="form-control" id="severity-filter" onchange="loadAlerts()">
+    <option value="">全部等級</option>
+    <option value="critical">嚴重</option>
+    <option value="warning">警告</option>
+    <option value="info">資訊</option>
+  </select>
+  <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);">
+    <input type="checkbox" id="unread-only" onchange="loadAlerts()"> 僅顯示未讀
+  </label>
+  <span id="alert-count" style="font-size:13px;color:var(--text-secondary);margin-left:auto;"></span>
+</div>
+
+<div id="alert-list"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const typeLabels = { pollution: '污染警報', abnormal_ph: 'pH 異常', low_battery: '低電量', low_oxygen: '溶氧過低' };
+const severityLabels = { critical: '嚴重', warning: '警告', info: '資訊' };
+
+async function loadAlerts() {
+  const type = document.getElementById('type-filter').value;
+  const severity = document.getElementById('severity-filter').value;
+  const unread = document.getElementById('unread-only').checked;
+  let url = '/api/alerts?limit=50';
+  if (type) url += '&alert_type=' + type;
+  if (severity) url += '&severity=' + severity;
+  if (unread) url += '&is_read=false';
+
+  const res = await fetch(url);
+  const d = await res.json();
+  document.getElementById('alert-count').textContent = `共 ${d.count} 筆警報`;
+
+  const list = document.getElementById('alert-list');
+  if (d.alerts.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">✅</div><div>暫無警報</div></div>';
+    return;
+  }
+
+  list.innerHTML = d.alerts.map(a => `
+    <div class="glass-card severity-${a.severity}" style="margin-bottom:10px;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:start;">
+        <div style="flex:1;">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+            <span class="badge badge-${a.severity === 'critical' ? 'critical' : a.severity === 'warning' ? 'warning' : 'info'}">${severityLabels[a.severity]}</span>
+            <span class="badge badge-outline" style="border:1px solid var(--border);color:var(--stream-blue);">${typeLabels[a.alert_type]||a.alert_type}</span>
+            <span style="font-size:12px;color:var(--text-secondary);">${a.station_name}</span>
+            ${!a.is_read ? '<span style="font-size:10px;color:var(--danger);">● 未讀</span>' : ''}
+          </div>
+          <div style="margin-bottom:4px;">${a.message}</div>
+          <div style="font-size:12px;color:var(--text-secondary);">
+            檢測值: ${a.sensor_value} | 閾值: ${a.threshold_value} | ${new Date(a.created_at).toLocaleString('zh-TW')}
+          </div>
+        </div>
+        ${!a.is_read ? `<button class="btn btn-sm btn-outline" onclick="markRead(${a.id})">標記已讀</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function markRead(id) {
+  await fetch(`/api/alerts/${id}/read`, { method: 'PUT' });
+  loadAlerts();
+}
+
+async function markAllRead() {
+  await fetch('/api/alerts/read-all', { method: 'PUT' });
+  loadAlerts();
+}
+
+loadAlerts();
+setInterval(loadAlerts, 15000);
+</script>
+{% endblock %}

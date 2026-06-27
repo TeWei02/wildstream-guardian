@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}儀表板{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>📊 系統儀表板</h2>
+  <span class="breadcrumb">首頁 / 儀表板</span>
+</div>
+
+<div id="kpi-container" class="kpi-grid">
+  <div class="kpi-card green"><span class="kpi-label">監測站總數</span><span class="kpi-value" id="kpi-stations">-</span></div>
+  <div class="kpi-card blue"><span class="kpi-label">在線站數</span><span class="kpi-value" id="kpi-online">-</span></div>
+  <div class="kpi-card orange"><span class="kpi-label">未讀警報</span><span class="kpi-value" id="kpi-alerts">-</span></div>
+  <div class="kpi-card"><span class="kpi-label">最近數據</span><span class="kpi-value" id="kpi-latest" style="font-size:14px;">-</span></div>
+</div>
+
+<div class="grid-2">
+  <div class="chart-container">
+    <h3>各站最新水質概覽</h3>
+    <div id="station-overview"></div>
+  </div>
+  <div class="chart-container">
+    <h3>24 小時警報趨勢</h3>
+    <canvas id="alertTrendChart"></canvas>
+  </div>
+</div>
+
+<h3 style="margin:20px 0 12px; font-size:15px; color:var(--text-secondary);">監測站快速狀態</h3>
+<div id="station-cards" class="grid-2"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(async () => {
+  const res = await fetch('/api/dashboard');
+  const d = await res.json();
+
+  document.getElementById('kpi-stations').textContent = d.total_stations;
+  document.getElementById('kpi-online').textContent = d.online_stations;
+  document.getElementById('kpi-alerts').textContent = d.unread_alerts;
+  document.getElementById('kpi-latest').textContent = d.latest_data_at ? new Date(d.latest_data_at).toLocaleString('zh-TW') : '無數據';
+
+  // 警報趨勢圖
+  const labels = d.alert_trend.map(a => new Date(a.hour).getHours() + ':00');
+  const alertData = d.alert_trend.map(a => a.count);
+  new Chart(document.getElementById('alertTrendChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{ label: '警報數', data: alertData, borderColor: '#E8833A', backgroundColor: 'rgba(232,131,58,0.1)', fill: true, tension: 0.4 }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#8B95A5' } } },
+      scales: {
+        x: { ticks: { color: '#8B95A5' }, grid: { color: '#2A3A4A' } },
+        y: { ticks: { color: '#8B95A5' }, grid: { color: '#2A3A4A' } }
+      }
+    }
+  });
+
+  // 監測站卡片
+  const cards = document.getElementById('station-cards');
+  d.station_snapshots.forEach(s => {
+    const statusClass = s.status === 'online' ? 'badge-online' : s.status === 'offline' ? 'badge-offline' : 'badge-maintenance';
+    const card = document.createElement('div');
+    card.className = 'glass-card';
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <a href="/stations/${s.station_id}" style="color:var(--text-primary);text-decoration:none;font-weight:600;">${s.station_name}</a>
+        <span class="badge ${statusClass}">${s.status === 'online' ? '在線' : s.status === 'offline' ? '離線' : '維護中'}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">${s.river_name}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;">
+        <div>水溫: ${s.temperature != null ? s.temperature+'°C' : '-'}</div>
+        <div>pH: ${s.ph != null ? s.ph : '-'}</div>
+        <div>濁度: ${s.turbidity != null ? s.turbidity+' NTU' : '-'}</div>
+        <div>溶氧: ${s.dissolved_oxygen != null ? s.dissolved_oxygen+' mg/L' : '-'}</div>
+        <div>電量: ${s.battery != null ? s.battery+'%' : '-'}</div>
+        <div style="font-size:11px;color:var(--text-secondary);">${s.recorded_at ? new Date(s.recorded_at).toLocaleString('zh-TW') : ''}</div>
+      </div>
+    `;
+    cards.appendChild(card);
+  });
+})();
+</script>
+{% endblock %}

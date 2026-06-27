@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}監測站管理{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>📍 監測站管理</h2>
+  <button class="btn btn-primary" onclick="showAddForm()">+ 新增監測站</button>
+</div>
+
+<div class="filter-bar">
+  <select class="form-control" id="status-filter" onchange="loadStations()">
+    <option value="">全部狀態</option>
+    <option value="online">在線</option>
+    <option value="offline">離線</option>
+    <option value="maintenance">維護中</option>
+  </select>
+</div>
+
+<div class="glass-card" id="station-table-container">
+  <table class="data-table">
+    <thead>
+      <tr><th>名稱</th><th>編號</th><th>河川</th><th>座標</th><th>狀態</th><th>設備 ID</th><th>操作</th></tr>
+    </thead>
+    <tbody id="station-tbody"></tbody>
+  </table>
+</div>
+
+<!-- 新增/編輯 Modal -->
+<div id="station-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:200;align-items:center;justify-content:center;">
+  <div class="glass-card" style="width:500px;max-height:80vh;overflow-y:auto;">
+    <h3 id="modal-title" style="margin-bottom:16px;">新增監測站</h3>
+    <input type="hidden" id="edit-id">
+    <div class="form-group"><label>名稱</label><input class="form-control" id="f-name"></div>
+    <div class="form-group"><label>編號</label><input class="form-control" id="f-code"></div>
+    <div class="form-group"><label>河川名稱</label><input class="form-control" id="f-river"></div>
+    <div class="grid-2">
+      <div class="form-group"><label>緯度</label><input class="form-control" id="f-lat" type="number" step="0.0001"></div>
+      <div class="form-group"><label>經度</label><input class="form-control" id="f-lon" type="number" step="0.0001"></div>
+    </div>
+    <div class="form-group"><label>設備 ID</label><input class="form-control" id="f-device"></div>
+    <div class="form-group"><label>狀態</label>
+      <select class="form-control" id="f-status">
+        <option value="online">在線</option><option value="offline">離線</option><option value="maintenance">維護中</option>
+      </select>
+    </div>
+    <div class="form-group"><label>描述</label><textarea class="form-control" id="f-desc" rows="2"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveStation()">儲存</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadStations() {
+  const status = document.getElementById('status-filter').value;
+  const url = status ? `/api/stations?status=${status}` : '/api/stations';
+  const res = await fetch(url);
+  const data = await res.json();
+  const tbody = document.getElementById('station-tbody');
+  tbody.innerHTML = data.stations.map(s => `
+    <tr>
+      <td><a href="/stations/${s.id}" style="color:var(--stream-blue);text-decoration:none;">${s.name}</a></td>
+      <td>${s.code}</td><td>${s.river_name}</td>
+      <td>${s.latitude.toFixed(4)}, ${s.longitude.toFixed(4)}</td>
+      <td><span class="badge badge-${s.status}">${s.status==='online'?'在線':s.status==='offline'?'離線':'維護中'}</span></td>
+      <td>${s.device_id||'-'}</td>
+      <td>
+        <button class="btn btn-sm btn-outline" onclick="editStation(${s.id})">編輯</button>
+        <button class="btn btn-sm btn-outline" style="color:var(--danger);" onclick="deleteStation(${s.id})">刪除</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function showAddForm() {
+  document.getElementById('modal-title').textContent = '新增監測站';
+  document.getElementById('edit-id').value = '';
+  ['f-name','f-code','f-river','f-lat','f-lon','f-device','f-desc'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f-status').value = 'online';
+  document.getElementById('station-modal').style.display = 'flex';
+}
+
+async function editStation(id) {
+  const res = await fetch(`/api/stations/${id}`);
+  const s = await res.json();
+  document.getElementById('modal-title').textContent = '編輯監測站';
+  document.getElementById('edit-id').value = s.id;
+  document.getElementById('f-name').value = s.name;
+  document.getElementById('f-code').value = s.code;
+  document.getElementById('f-river').value = s.river_name;
+  document.getElementById('f-lat').value = s.latitude;
+  document.getElementById('f-lon').value = s.longitude;
+  document.getElementById('f-device').value = s.device_id||'';
+  document.getElementById('f-status').value = s.status;
+  document.getElementById('f-desc').value = s.description||'';
+  document.getElementById('station-modal').style.display = 'flex';
+}
+
+function closeModal() { document.getElementById('station-modal').style.display = 'none'; }
+
+async function saveStation() {
+  const id = document.getElementById('edit-id').value;
+  const body = {
+    name: document.getElementById('f-name').value,
+    code: document.getElementById('f-code').value,
+    river_name: document.getElementById('f-river').value,
+    latitude: parseFloat(document.getElementById('f-lat').value),
+    longitude: parseFloat(document.getElementById('f-lon').value),
+    device_id: document.getElementById('f-device').value,
+    status: document.getElementById('f-status').value,
+    description: document.getElementById('f-desc').value,
+  };
+  const method = id ? 'PUT' : 'POST';
+  const url = id ? `/api/stations/${id}` : '/api/stations';
+  await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  closeModal();
+  loadStations();
+}
+
+async function deleteStation(id) {
+  if (!confirm('確定要刪除此監測站嗎？此操作無法復原。')) return;
+  await fetch(`/api/stations/${id}`, { method:'DELETE' });
+  loadStations();
+}
+
+loadStations();
+</script>
+{% endblock %}

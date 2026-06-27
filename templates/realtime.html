@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}實時數據{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>📡 實時水質數據</h2>
+  <span class="breadcrumb">監測 / 實時數據</span>
+</div>
+
+<div class="filter-bar">
+  <select class="form-control" id="station-select" onchange="loadData()">
+    <option value="">全部監測站</option>
+  </select>
+  <select class="form-control" id="param-select" onchange="loadData()">
+    <option value="">全部參數</option>
+    <option value="temperature">水溫</option>
+    <option value="ph">pH 值</option>
+    <option value="turbidity">濁度</option>
+    <option value="dissolved_oxygen">溶氧</option>
+    <option value="conductivity">導電度</option>
+    <option value="ammonia_nitrogen">氨氮</option>
+    <option value="total_phosphorus">總磷</option>
+  </select>
+  <select class="form-control" id="hours-select" onchange="loadData()">
+    <option value="6">最近 6 小時</option>
+    <option value="12">最近 12 小時</option>
+    <option value="24" selected>最近 24 小時</option>
+    <option value="72">最近 3 天</option>
+  </select>
+  <span id="data-count" style="font-size:13px;color:var(--text-secondary);"></span>
+</div>
+
+<div class="chart-container">
+  <h3>時間序列圖</h3>
+  <canvas id="realtimeChart"></canvas>
+</div>
+
+<h3 style="font-size:15px;color:var(--text-secondary);margin-bottom:12px;">最新數據明細</h3>
+<div class="glass-card" style="overflow-x:auto;">
+  <table class="data-table" id="data-table">
+    <thead><tr><th>監測站</th><th>時間</th><th>水溫</th><th>pH</th><th>濁度</th><th>溶氧</th><th>導電度</th><th>氨氮</th><th>總磷</th><th>電量</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let chart = null;
+
+async function init() {
+  const res = await fetch('/api/stations');
+  const data = await res.json();
+  const sel = document.getElementById('station-select');
+  data.stations.forEach(s => {
+    sel.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+  });
+  loadData();
+}
+
+async function loadData() {
+  const stationId = document.getElementById('station-select').value;
+  const param = document.getElementById('param-select').value;
+  const hours = document.getElementById('hours-select').value;
+  let url = `/api/data?hours=${hours}`;
+  if (stationId) url += `&station_id=${stationId}`;
+  if (param) url += `&param=${param}`;
+
+  const res = await fetch(url);
+  const d = await res.json();
+  document.getElementById('data-count').textContent = `共 ${d.count} 筆`;
+
+  // 圖表
+  if (chart) chart.destroy();
+  const ctx = document.getElementById('realtimeChart').getContext('2d');
+  const labels = d.data.map(r => new Date(r.recorded_at).toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'}));
+  const datasets = [];
+  const params = ['temperature','ph','turbidity','dissolved_oxygen','conductivity'];
+  const colors = ['#E8833A','#3A9BD5','#5DAD65','#1A6B5A','#8B95A5'];
+  params.forEach((p,i) => {
+    if (param && p !== param) return;
+    const vals = d.data.map(r => r[p]);
+    if (vals.some(v => v != null)) {
+      datasets.push({ label: p, data: vals, borderColor: colors[i], tension: 0.3, pointRadius: 0 });
+    }
+  });
+  chart = new Chart(ctx, {
+    type: 'line', data: { labels, datasets },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#8B95A5' } } },
+      scales: { x: { ticks: { color: '#8B95A5' }, grid: { color: '#2A3A4A' } }, y: { ticks: { color: '#8B95A5' }, grid: { color: '#2A3A4A' } } }
+    }
+  });
+
+  // 表格
+  const stationsMap = {};
+  const sr = await fetch('/api/stations');
+  const sd = await sr.json();
+  sd.stations.forEach(s => stationsMap[s.id] = s.name);
+
+  const tbody = document.querySelector('#data-table tbody');
+  const recent = d.data.slice(-20).reverse();
+  tbody.innerHTML = recent.map(r => `
+    <tr>
+      <td>${stationsMap[r.station_id]||''}</td>
+      <td>${new Date(r.recorded_at).toLocaleString('zh-TW')}</td>
+      <td>${r.temperature!=null?r.temperature+'°C':'-'}</td>
+      <td>${r.ph!=null?r.ph:'-'}</td>
+      <td>${r.turbidity!=null?r.turbidity+' NTU':'-'}</td>
+      <td>${r.dissolved_oxygen!=null?r.dissolved_oxygen+' mg/L':'-'}</td>
+      <td>${r.conductivity!=null?r.conductivity+' µS':'-'}</td>
+      <td>${r.ammonia_nitrogen!=null?r.ammonia_nitrogen+' mg/L':'-'}</td>
+      <td>${r.total_phosphorus!=null?r.total_phosphorus+' mg/L':'-'}</td>
+      <td>${r.battery!=null?r.battery+'%':'-'}</td>
+    </tr>
+  `).join('');
+}
+
+init();
+setInterval(loadData, 30000);
+</script>
+{% endblock %}

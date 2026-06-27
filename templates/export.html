@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}數據導出{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>📥 數據導出</h2>
+</div>
+
+<div class="glass-card" style="max-width:600px;">
+  <h3 style="margin-bottom:16px;">導出傳感器數據</h3>
+  <div class="form-group">
+    <label>監測站（可選）</label>
+    <select class="form-control" id="export-station">
+      <option value="">全部監測站</option>
+    </select>
+  </div>
+  <div class="form-group">
+    <label>時間範圍</label>
+    <select class="form-control" id="export-hours">
+      <option value="24">最近 24 小時</option>
+      <option value="72">最近 3 天</option>
+      <option value="168" selected>最近 7 天</option>
+      <option value="720">最近 30 天</option>
+    </select>
+  </div>
+  <div class="form-group">
+    <label>格式</label>
+    <select class="form-control" id="export-format">
+      <option value="csv">CSV</option>
+      <option value="json">JSON</option>
+    </select>
+  </div>
+  <button class="btn btn-primary" onclick="doExport()">下載導出檔案</button>
+  <button class="btn btn-outline" style="margin-left:8px;" onclick="previewData()">預覽數據</button>
+</div>
+
+<div id="preview-container" style="margin-top:20px;display:none;">
+  <h3 style="font-size:15px;color:var(--text-secondary);margin-bottom:12px;">數據預覽（最近 50 筆）</h3>
+  <div class="glass-card" style="overflow-x:auto;">
+    <table class="data-table" id="preview-table">
+      <thead><tr><th>監測站</th><th>時間</th><th>水溫</th><th>pH</th><th>濁度</th><th>溶氧</th><th>導電度</th><th>氨氮</th><th>總磷</th><th>電量</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function init() {
+  const res = await fetch('/api/stations');
+  const d = await res.json();
+  const sel = document.getElementById('export-station');
+  d.stations.forEach(s => sel.innerHTML += `<option value="${s.id}">${s.name}</option>`);
+}
+
+function doExport() {
+  const sid = document.getElementById('export-station').value;
+  const hours = document.getElementById('export-hours').value;
+  const fmt = document.getElementById('export-format').value;
+  let url = `/api/export?hours=${hours}&format=${fmt}`;
+  if (sid) url += '&station_id=' + sid;
+  window.open(url, '_blank');
+}
+
+async function previewData() {
+  const sid = document.getElementById('export-station').value;
+  const hours = document.getElementById('export-hours').value;
+  let url = `/api/data?hours=${hours}`;
+  if (sid) url += '&station_id=' + sid;
+
+  const res = await fetch(url);
+  const d = await res.json();
+  const container = document.getElementById('preview-container');
+  container.style.display = 'block';
+
+  const sr = await fetch('/api/stations');
+  const sd = await sr.json();
+  const sm = {};
+  sd.stations.forEach(s => sm[s.id] = s.name);
+
+  const recent = d.data.slice(-50).reverse();
+  document.querySelector('#preview-table tbody').innerHTML = recent.map(r => `
+    <tr>
+      <td>${sm[r.station_id]||''}</td>
+      <td>${new Date(r.recorded_at).toLocaleString('zh-TW')}</td>
+      <td>${r.temperature!=null?r.temperature+'°C':'-'}</td>
+      <td>${r.ph!=null?r.ph:'-'}</td>
+      <td>${r.turbidity!=null?r.turbidity+' NTU':'-'}</td>
+      <td>${r.dissolved_oxygen!=null?r.dissolved_oxygen+' mg/L':'-'}</td>
+      <td>${r.conductivity!=null?r.conductivity+' µS':'-'}</td>
+      <td>${r.ammonia_nitrogen!=null?r.ammonia_nitrogen+' mg/L':'-'}</td>
+      <td>${r.total_phosphorus!=null?r.total_phosphorus+' mg/L':'-'}</td>
+      <td>${r.battery!=null?r.battery+'%':'-'}</td>
+    </tr>
+  `).join('');
+}
+
+init();
+</script>
+{% endblock %}

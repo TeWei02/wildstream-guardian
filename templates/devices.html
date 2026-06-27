@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}設備管理{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>🔧 設備管理</h2>
+  <span class="breadcrumb">系統 / 設備管理</span>
+</div>
+
+<div class="glass-card" style="margin-bottom:20px;">
+  <h3 style="font-size:15px;margin-bottom:12px;">NB-IoT 數據模擬發送</h3>
+  <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">使用下方表單模擬 NB-IoT 設備上報數據，系統將自動進行異常檢測。</p>
+  <div class="form-group">
+    <label>目標監測站</label>
+    <select class="form-control" id="ingest-station"></select>
+  </div>
+  <div class="grid-3">
+    <div class="form-group"><label>水溫 (°C)</label><input class="form-control" id="ingest-temp" type="number" step="0.1" value="23.5"></div>
+    <div class="form-group"><label>pH 值</label><input class="form-control" id="ingest-ph" type="number" step="0.01" value="7.2"></div>
+    <div class="form-group"><label>濁度 (NTU)</label><input class="form-control" id="ingest-turb" type="number" step="0.1" value="25.0"></div>
+    <div class="form-group"><label>溶氧 (mg/L)</label><input class="form-control" id="ingest-do" type="number" step="0.1" value="7.5"></div>
+    <div class="form-group"><label>導電度 (µS/cm)</label><input class="form-control" id="ingest-cond" type="number" step="0.1" value="260"></div>
+    <div class="form-group"><label>氨氮 (mg/L)</label><input class="form-control" id="ingest-nh3" type="number" step="0.01" value="0.2"></div>
+    <div class="form-group"><label>總磷 (mg/L)</label><input class="form-control" id="ingest-tp" type="number" step="0.01" value="0.05"></div>
+    <div class="form-group"><label>電量 (%)</label><input class="form-control" id="ingest-batt" type="number" step="0.1" value="85"></div>
+    <div class="form-group"><label>訊號強度 (dBm)</label><input class="form-control" id="ingest-sig" type="number" step="0.1" value="-78"></div>
+  </div>
+  <button class="btn btn-primary" onclick="sendIngest()">發送數據</button>
+  <span id="ingest-result" style="margin-left:12px;font-size:13px;"></span>
+</div>
+
+<h3 style="font-size:15px;color:var(--text-secondary);margin-bottom:12px;">設備清單</h3>
+<div class="glass-card" style="overflow-x:auto;">
+  <table class="data-table">
+    <thead><tr><th>監測站</th><th>設備 ID</th><th>狀態</th><th>最後數據時間</th><th>電量</th><th>訊號</th></tr></thead>
+    <tbody id="device-tbody"></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function init() {
+  const [sr, dr] = await Promise.all([
+    fetch('/api/stations'),
+    fetch('/api/dashboard')
+  ]);
+  const stations = await sr.json();
+  const dash = await dr.json();
+
+  const sel = document.getElementById('ingest-station');
+  stations.stations.forEach(s => sel.innerHTML += `<option value="${s.id}">${s.name}</option>`);
+
+  const tbody = document.getElementById('device-tbody');
+  tbody.innerHTML = dash.station_snapshots.map(s => `
+    <tr>
+      <td>${s.station_name}</td>
+      <td>-</td>
+      <td><span class="badge badge-${s.status}">${s.status==='online'?'在線':s.status==='offline'?'離線':'維護中'}</span></td>
+      <td>${s.recorded_at ? new Date(s.recorded_at).toLocaleString('zh-TW') : '-'}</td>
+      <td>${s.battery!=null ? s.battery+'%' : '-'}</td>
+      <td>-</td>
+    </tr>
+  `).join('');
+
+  // 獲取設備 ID
+  stations.stations.forEach(s => {
+    // 設備 ID 從 stations API 獲取
+  });
+}
+
+async function sendIngest() {
+  const body = {
+    station_id: parseInt(document.getElementById('ingest-station').value),
+    temperature: parseFloat(document.getElementById('ingest-temp').value),
+    ph: parseFloat(document.getElementById('ingest-ph').value),
+    turbidity: parseFloat(document.getElementById('ingest-turb').value),
+    dissolved_oxygen: parseFloat(document.getElementById('ingest-do').value),
+    conductivity: parseFloat(document.getElementById('ingest-cond').value),
+    ammonia_nitrogen: parseFloat(document.getElementById('ingest-nh3').value),
+    total_phosphorus: parseFloat(document.getElementById('ingest-tp').value),
+    battery: parseFloat(document.getElementById('ingest-batt').value),
+    signal_strength: parseFloat(document.getElementById('ingest-sig').value),
+  };
+  const res = await fetch('/api/data/ingest', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  const d = await res.json();
+  const el = document.getElementById('ingest-result');
+  if (d.ok) {
+    el.style.color = 'var(--eco-green)';
+    el.textContent = `數據已接收 (ID:${d.data_id})，觸發 ${d.alerts_generated} 條警報`;
+    if (d.alerts_generated > 0) el.textContent += ` (${d.alert_types.join(', ')})`;
+  } else {
+    el.style.color = 'var(--danger)';
+    el.textContent = '發送失敗';
+  }
+}
+
+init();
+</script>
+{% endblock %}

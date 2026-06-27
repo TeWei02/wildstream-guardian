@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}監測站詳情{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2 id="detail-title">📍 監測站詳情</h2>
+  <a href="/stations" class="btn btn-outline">← 返回列表</a>
+</div>
+
+<div id="detail-content" class="loading">載入中...</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(async () => {
+  const pathParts = window.location.pathname.split('/');
+  const stationId = pathParts[pathParts.length - 1];
+
+  const res = await fetch(`/api/stations/${stationId}`);
+  if (!res.ok) { document.getElementById('detail-content').innerHTML = '<div class="empty-state"><div class="icon">❌</div><div>監測站不存在</div></div>'; return; }
+
+  const s = await res.json();
+  document.getElementById('detail-title').textContent = '📍 ' + s.name;
+
+  const dataRes = await fetch(`/api/data?station_id=${stationId}&hours=168`);
+  const d = await dataRes.json();
+
+  const statsRes = await fetch(`/api/stats?station_id=${stationId}&hours=168`);
+  const st = await statsRes.json();
+
+  const alertsRes = await fetch(`/api/alerts?station_id=${stationId}&limit=10`);
+  const al = await alertsRes.json();
+
+  const statusClass = s.status === 'online' ? 'badge-online' : s.status === 'offline' ? 'badge-offline' : 'badge-maintenance';
+  const statusText = s.status === 'online' ? '在線' : s.status === 'offline' ? '離線' : '維護中';
+
+  document.getElementById('detail-content').innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi-card"><span class="kpi-label">狀態</span><span class="kpi-value" style="font-size:18px;"><span class="badge ${statusClass}">${statusText}</span></span></div>
+      <div class="kpi-card"><span class="kpi-label">編號</span><span class="kpi-value" style="font-size:18px;">${s.code}</span></div>
+      <div class="kpi-card"><span class="kpi-label">河川</span><span class="kpi-value" style="font-size:18px;">${s.river_name}</span></div>
+      <div class="kpi-card"><span class="kpi-label">設備 ID</span><span class="kpi-value" style="font-size:15px;">${s.device_id||'未綁定'}</span></div>
+    </div>
+
+    <div style="margin-bottom:16px;font-size:13px;color:var(--text-secondary);">
+      座標：${s.latitude.toFixed(4)}, ${s.longitude.toFixed(4)} |
+      描述：${s.description||'無'}
+      ${s.created_at ? ' | 建立：' + new Date(s.created_at).toLocaleString('zh-TW') : ''}
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('chart')">趨勢圖表</div>
+      <div class="tab" onclick="switchTab('table')">數據表格</div>
+      <div class="tab" onclick="switchTab('alerts')">警報記錄</div>
+    </div>
+
+    <div id="tab-chart">
+      <div class="chart-container"><h3>7 天水質趨勢</h3><canvas id="detailChart"></canvas></div>
+    </div>
+    <div id="tab-table" style="display:none;">
+      <div class="glass-card" style="overflow-x:auto;">
+        <table class="data-table">
+          <thead><tr><th>時間</th><th>水溫</th><th>pH</th><th>濁度</th><th>溶氧</th><th>導電度</th><th>氨氮</th><th>總磷</th><th>電量</th></tr></thead>
+          <tbody>${d.data.slice(-30).reverse().map(r => `
+            <tr>
+              <td>${new Date(r.recorded_at).toLocaleString('zh-TW')}</td>
+              <td>${r.temperature!=null?r.temperature+'°C':'-'}</td>
+              <td>${r.ph!=null?r.ph:'-'}</td>
+              <td>${r.turbidity!=null?r.turbidity+' NTU':'-'}</td>
+              <td>${r.dissolved_oxygen!=null?r.dissolved_oxygen+' mg/L':'-'}</td>
+              <td>${r.conductivity!=null?r.conductivity+' µS':'-'}</td>
+              <td>${r.ammonia_nitrogen!=null?r.ammonia_nitrogen+' mg/L':'-'}</td>
+              <td>${r.total_phosphorus!=null?r.total_phosphorus+' mg/L':'-'}</td>
+              <td>${r.battery!=null?r.battery+'%':'-'}</td>
+            </tr>
+          `).join('')}</tbody>
+        </table>
+      </div>
+    </div>
+    <div id="tab-alerts" style="display:none;">
+      ${al.alerts.length === 0 ? '<div class="empty-state"><div class="icon">✅</div><div>此站暫無警報</div></div>' :
+        al.alerts.map(a => {
+          const sev = a.severity==='critical'?'critical':a.severity==='warning'?'warning':'info';
+          const typeLabels = {pollution:'污染',abnormal_ph:'pH異常',low_battery:'低電量',low_oxygen:'溶氧過低'};
+          return `<div class="glass-card severity-${sev}" style="margin-bottom:8px;padding:14px;">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;">
+              <span class="badge badge-${sev}">${a.severity==='critical'?'嚴重':a.severity==='warning'?'警告':'資訊'}</span>
+              <span class="badge" style="border:1px solid var(--border);color:var(--stream-blue);">${typeLabels[a.alert_type]||a.alert_type}</span>
+              ${!a.is_read ? '<span style="font-size:10px;color:var(--danger);">● 未讀</span>' : ''}
+            </div>
+            <div style="font-size:13px;">${a.message}</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">${new Date(a.created_at).toLocaleString('zh-TW')}</div>
+          </div>`;
+        }).join('')
+      }
+    </div>
+  `;
+
+  // 圖表
+  const labels = d.data.map(r => new Date(r.recorded_at).toLocaleDateString('zh-TW',{month:'numeric',day:'numeric'})+' '+new Date(r.recorded_at).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}));
+  new Chart(document.getElementById('detailChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: '水溫 (°C)', data: d.data.map(r=>r.temperature), borderColor: '#E8833A', tension:0.3, pointRadius:0 },
+        { label: 'pH', data: d.data.map(r=>r.ph), borderColor: '#3A9BD5', tension:0.3, pointRadius:0 },
+        { label: '濁度 (NTU)', data: d.data.map(r=>r.turbidity), borderColor: '#5DAD65', tension:0.3, pointRadius:0 },
+        { label: '溶氧 (mg/L)', data: d.data.map(r=>r.dissolved_oxygen), borderColor: '#1A6B5A', tension:0.3, pointRadius:0 },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#8B95A5' } } },
+      scales: {
+        x: { ticks: { color:'#8B95A5', maxTicksLimit:12 }, grid: { color:'#2A3A4A' } },
+        y: { ticks: { color:'#8B95A5' }, grid: { color:'#2A3A4A' } }
+      }
+    }
+  });
+})();
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('[id^="tab-"]').forEach(d => d.style.display = 'none');
+  event.target.classList.add('active');
+  document.getElementById('tab-' + tab).style.display = 'block';
+}
+</script>
+{% endblock %}

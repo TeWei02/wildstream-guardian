@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}守護者商城{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>🛒 守護者商城</h2>
+  <span class="breadcrumb">商城 / 商品列表</span>
+</div>
+
+<div class="filter-bar">
+  <select class="form-control" id="category-filter" onchange="loadProducts()">
+    <option value="">全部分類</option>
+    <option value="device">設備</option>
+    <option value="accessory">配件</option>
+    <option value="consumable">耗材</option>
+    <option value="book">書籍</option>
+    <option value="merch">週邊</option>
+  </select>
+</div>
+
+<div id="shop-grid" class="shop-grid"></div>
+
+<!-- 下單 Modal -->
+<div id="order-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:200;align-items:center;justify-content:center;">
+  <div class="glass-card" style="width:400px;">
+    <h3 style="margin-bottom:16px;">確認訂購</h3>
+    <input type="hidden" id="order-product-id">
+    <div style="margin-bottom:8px;font-size:14px;">商品：<strong id="order-product-name"></strong></div>
+    <div style="margin-bottom:8px;font-size:14px;">單價：<strong id="order-price"></strong> 元</div>
+    <div class="form-group">
+      <label>數量</label>
+      <input class="form-control" id="order-qty" type="number" min="1" value="1" onchange="calcTotal()">
+    </div>
+    <div class="form-group">
+      <label>訂購人姓名</label>
+      <input class="form-control" id="order-name" placeholder="請輸入姓名">
+    </div>
+    <div style="margin-bottom:12px;font-size:16px;">總價：<strong id="order-total" style="color:var(--eco-green);">-</strong> 元</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeOrder()">取消</button>
+      <button class="btn btn-success" onclick="submitOrder()">確認下單</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadProducts() {
+  const cat = document.getElementById('category-filter').value;
+  const res = await fetch('/api/shop/products');
+  let data = await res.json();
+  let products = data.products;
+  if (cat) products = products.filter(p => p.category === cat);
+
+  const grid = document.getElementById('shop-grid');
+  const catIcons = { device:'📡', accessory:'🔋', consumable:'🧪', book:'📖', merch:'👕' };
+  const catLabels = { device:'設備', accessory:'配件', consumable:'耗材', book:'書籍', merch:'週邊' };
+
+  grid.innerHTML = products.map(p => `
+    <div class="product-card">
+      <div class="product-img">${catIcons[p.category]||'📦'}</div>
+      <div class="product-info">
+        <span class="badge" style="background:rgba(58,155,213,0.15);color:var(--stream-blue);margin-bottom:6px;">${catLabels[p.category]||p.category}</span>
+        <h3>${p.name}</h3>
+        <div class="desc">${p.description}</div>
+        <div class="price">NT$ ${p.price.toLocaleString()}</div>
+        <div class="stock">庫存：${p.stock} 件</div>
+        <button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="openOrder(${p.id}, '${p.name.replace(/'/g, "\\'")}', ${p.price})" ${p.stock<=0?'disabled':''}>${p.stock>0?'立即訂購':'已售罄'}</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openOrder(id, name, price) {
+  document.getElementById('order-product-id').value = id;
+  document.getElementById('order-product-name').textContent = name;
+  document.getElementById('order-price').textContent = 'NT$ ' + price.toLocaleString();
+  document.getElementById('order-qty').value = 1;
+  calcTotal();
+  document.getElementById('order-modal').style.display = 'flex';
+}
+
+function closeOrder() { document.getElementById('order-modal').style.display = 'none'; }
+
+function calcTotal() {
+  const price = parseInt(document.getElementById('order-price').textContent.replace(/[^0-9]/g,''));
+  const qty = parseInt(document.getElementById('order-qty').value) || 1;
+  document.getElementById('order-total').textContent = 'NT$ ' + (price * qty).toLocaleString();
+}
+
+async function submitOrder() {
+  const productId = document.getElementById('order-product-id').value;
+  const qty = parseInt(document.getElementById('order-qty').value);
+  const name = document.getElementById('order-name').value || '匿名';
+
+  const res = await fetch('/api/shop/orders', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ product_id: parseInt(productId), quantity: qty, customer_name: name }),
+  });
+  if (res.ok) {
+    alert('訂購成功！感謝您支持野溪守護者。');
+    closeOrder();
+    loadProducts();
+  } else {
+    const err = await res.json();
+    alert('訂購失敗：' + (err.detail || '未知錯誤'));
+  }
+}
+
+loadProducts();
+</script>
+{% endblock %}
