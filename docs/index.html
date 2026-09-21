@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>野溪守護者 — 全端河川水質監測平台</title>
+<meta name="description" content="野溪守護者 WildStream Guardian：河川水質監測平台示範版，整合監測站管理、即時數據、異常警報、地圖定位、歷史趨勢與 CSV 資料匯出。">
+<meta name="theme-color" content="#0F1923">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="vendor/leaflet.css" />
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/chart.umd.min.js"></script>
+<style>
+:root {
+  --river-blue: #1A6B5A; --stream-blue: #3A9BD5; --eco-green: #5DAD65;
+  --alert-orange: #E8833A; --bg-deep: #0F1923; --card-bg: #1A2332;
+  --text-primary: #E8ECF1; --text-secondary: #8899AA; --border: rgba(255,255,255,0.08);
+  --card-radius: 14px; --glass-blur: 12px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: "PingFang TC", "Helvetica Neue", "Microsoft JhengHei", sans-serif; background: var(--bg-deep); color: var(--text-primary); min-height: 100vh; }
+.glass { background: rgba(26,35,50,0.75); backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur)); border: 1px solid var(--border); border-radius: var(--card-radius); }
+/* Navbar */
+.navbar { background: rgba(15,25,35,0.92); backdrop-filter: blur(16px); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; height: 56px; position: sticky; top: 0; z-index: 1000; }
+.navbar .logo { font-size: 1.15rem; font-weight: 700; color: var(--eco-green); display: flex; align-items: center; gap: 8px; }
+.navbar .logo span { color: var(--text-primary); font-weight: 400; }
+.tab-nav { display: flex; flex: 1; justify-content: center; gap: 2px; overflow-x: auto; }
+.tab-btn { background: transparent; border: none; color: var(--text-secondary); padding: 8px 14px; cursor: pointer; border-radius: 8px; font-size: 0.85rem; font-family: inherit; white-space: nowrap; transition: all 0.2s; }
+.tab-btn:hover { color: var(--text-primary); background: rgba(255,255,255,0.05); }
+.tab-btn.active { color: var(--eco-green); background: rgba(93,173,101,0.12); font-weight: 600; }
+/* Content */
+.content { max-width: 1400px; margin: 0 auto; padding: 20px 24px 40px; }
+.tab-panel { display: none; animation: fadeIn 0.3s ease; }
+.tab-panel.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+/* KPI Cards */
+.kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 24px; }
+.kpi-card { padding: 20px; text-align: center; }
+.kpi-card .icon { font-size: 1.6rem; margin-bottom: 6px; }
+.kpi-card .value { font-size: 2rem; font-weight: 700; }
+.kpi-card .label { font-size: 0.8rem; color: var(--text-secondary); margin-top: 4px; }
+.kpi-card .change { font-size: 0.75rem; margin-top: 2px; }
+.chart-container { position: relative; height: 300px; margin-bottom: 24px; }
+.chart-container canvas { width: 100% !important; }
+/* Site Cards */
+.site-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); gap: 14px; }
+.site-card { padding: 16px; cursor: default; transition: transform 0.15s; }
+.site-card:hover { transform: translateY(-2px); }
+.site-card .site-name { font-weight: 600; font-size: 1rem; margin-bottom: 4px; }
+.site-card .site-loc { font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 10px; }
+.site-card .site-metrics { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.82rem; }
+.site-card .metric { display: flex; flex-direction: column; }
+.site-card .metric .mval { font-weight: 600; }
+.site-card .metric .mlbl { font-size: 0.7rem; color: var(--text-secondary); }
+.site-card .status { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.72rem; margin-top: 8px; }
+.status.online { background: rgba(93,173,101,0.2); color: var(--eco-green); }
+.status.offline { background: rgba(232,131,58,0.2); color: var(--alert-orange); }
+/* Tables */
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.data-table th { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-secondary); font-weight: 500; font-size: 0.78rem; text-transform: uppercase; }
+.data-table td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.data-table tr:hover td { background: rgba(255,255,255,0.02); }
+.btn { padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer; font-family: inherit; font-size: 0.82rem; transition: all 0.15s; }
+.btn-primary { background: var(--river-blue); color: #fff; }
+.btn-primary:hover { background: #1F7D6A; }
+.btn-sm { padding: 4px 10px; font-size: 0.75rem; border-radius: 6px; }
+.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-primary); }
+.btn-outline:hover { background: rgba(255,255,255,0.05); }
+.btn-danger { background: #C0392B; color: #fff; }
+.btn-success { background: var(--eco-green); color: #fff; }
+/* Modal */
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; align-items: center; justify-content: center; }
+.modal-overlay.show { display: flex; }
+.modal { background: #1A2332; border: 1px solid var(--border); border-radius: 16px; padding: 24px; width: 90%; max-width: 520px; }
+.modal h3 { margin-bottom: 16px; }
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; }
+.form-group input, .form-group textarea, .form-group select { width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-deep); color: var(--text-primary); font-family: inherit; font-size: 0.85rem; }
+.form-group textarea { resize: vertical; min-height: 60px; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+/* Alert */
+.alert-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.alert-dot.unread { background: #E74C3C; }
+.alert-dot.read { background: var(--text-secondary); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.72rem; font-weight: 600; }
+.badge-pollution { background: rgba(231,76,60,0.2); color: #E74C3C; }
+.badge-abnormal_ph { background: rgba(232,131,58,0.2); color: var(--alert-orange); }
+.badge-low_battery { background: rgba(241,196,15,0.2); color: #F1C40F; }
+/* Filter bar */
+.filter-bar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+.filter-bar select, .filter-bar input { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-deep); color: var(--text-primary); font-family: inherit; font-size: 0.82rem; }
+/* Map */
+.map-container { height: 600px; border-radius: var(--card-radius); overflow: hidden; border: 1px solid var(--border); }
+.map-container .leaflet-popup-content-wrapper { background: #1A2332; color: var(--text-primary); font-family: inherit; }
+.map-container .leaflet-popup-tip { background: #1A2332; }
+/* NB-IoT panel */
+.payload-editor { width: 100%; min-height: 180px; background: var(--bg-deep); color: var(--eco-green); border: 1px solid var(--border); border-radius: 10px; padding: 14px; font-family: 'SF Mono','Fira Code',monospace; font-size: 0.82rem; resize: vertical; }
+.log-panel { background: rgba(0,0,0,0.3); border-radius: 10px; padding: 14px; max-height: 300px; overflow-y: auto; font-family: 'SF Mono',monospace; font-size: 0.78rem; }
+.log-entry { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+.log-entry .time { color: var(--text-secondary); margin-right: 8px; }
+.log-entry.warn { color: var(--alert-orange); }
+.log-entry.error { color: #E74C3C; }
+/* Checkbox group */
+.checkbox-group { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.checkbox-group label { font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+/* Responsive */
+@media (max-width: 900px) {
+  .kpi-grid { grid-template-columns: repeat(2,1fr); }
+  .site-grid { grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); }
+  .tab-nav { justify-content: flex-start; }
+}
+@media (max-width: 600px) {
+  .kpi-grid { grid-template-columns: 1fr; }
+  .navbar { padding: 0 12px; }
+  .tab-btn { padding: 6px 10px; font-size: 0.78rem; }
+}
+/* Section title */
+.section-title { font-size: 1.1rem; font-weight: 600; margin-bottom: 14px; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
+.section-title::before { content: ''; width: 3px; height: 18px; background: var(--eco-green); border-radius: 2px; display: inline-block; }
+/* Product cards */
+.product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 14px; }
+.product-card { padding: 18px; display: flex; flex-direction: column; }
+.product-card .prod-name { font-weight: 600; font-size: 0.95rem; }
+.product-card .prod-desc { font-size: 0.78rem; color: var(--text-secondary); margin: 6px 0 10px; flex: 1; }
+.product-card .prod-price { font-size: 1.15rem; font-weight: 700; color: var(--alert-orange); }
+/* Details row */
+.detail-row { background: rgba(0,0,0,0.2); }
+.detail-row td { padding: 16px 20px !important; }
+.detail-content { display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap: 10px; font-size: 0.82rem; }
+/* Demo banner & footer */
+.demo-banner { background: rgba(232,131,58,0.12); border-bottom: 1px solid rgba(232,131,58,0.3); color: #E8833A; font-size: 0.78rem; text-align: center; padding: 8px 16px; line-height: 1.5; }
+.demo-banner b { color: #F0A868; }
+.site-footer { max-width: 1400px; margin: 0 auto; padding: 18px 24px 32px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 0.75rem; color: var(--text-secondary); border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar">
+  <div class="logo">&#x1F98E; 野溪守護者 <span>| 河川水質監測平台</span></div>
+  <div class="tab-nav" id="tabNav">
+    <button class="tab-btn active" data-tab="dashboard">儀表板</button>
+    <button class="tab-btn" data-tab="stations">監測站管理</button>
+    <button class="tab-btn" data-tab="realtime">即時數據</button>
+    <button class="tab-btn" data-tab="alerts">報警系統</button>
+    <button class="tab-btn" data-tab="export">數據匯出</button>
+    <button class="tab-btn" data-tab="map">地圖顯示</button>
+    <button class="tab-btn" data-tab="trends">歷史趨勢</button>
+    <button class="tab-btn" data-tab="devices">設備管理</button>
+    <button class="tab-btn" data-tab="nbiot">NB-IoT 數據接收</button>
+  </div>
+</nav>
+
+<div class="demo-banner"><b>示範版本</b>：本頁所有監測數據由瀏覽器端即時模擬生成，用於展示平台功能與互動流程，<b>非真實量測結果</b>。</div>
+
+<div class="content" id="contentArea"></div>
+
+<footer class="site-footer">
+  <span>野溪守護者 WildStream Guardian · 河川水質監測平台（示範版）</span>
+  <span>資料來源：瀏覽器端模擬 · MIT License &copy; 2026 Te-Wei Ko</span>
+</footer>
+
+<script>
+// ========== 模擬數據 ==========
+const SITES = [
+  {id:1, name:'石門水庫上游', lat:24.812, lng:121.246, description:'大漢溪上游監測點，監控石門水庫集水區水質'},
+  {id:2, name:'新店溪碧潭', lat:24.957, lng:121.536, description:'新店溪中游監測點，鄰近碧潭風景區'},
+  {id:3, name:'基隆河汐止', lat:25.066, lng:121.653, description:'基隆河中游監測點，汐止工業區下游'},
+  {id:4, name:'淡水河關渡', lat:25.121, lng:121.465, description:'淡水河下游監測點，關渡平原匯流處'},
+  {id:5, name:'蘭陽溪員山', lat:24.746, lng:121.725, description:'蘭陽溪上游監測點，宜蘭員山鄉'}
+];
+
+// 生成28條傳感器數據（每6小時×7天）
+function generateSensorData(siteId) {
+  const records = [];
+  const baseDate = new Date('2026-06-21T00:00:00');
+  for (let i = 0; i < 28; i++) {
+    const dt = new Date(baseDate.getTime() + i * 6 * 3600 * 1000);
+    let temp = 18 + Math.random() * 10;
+    let ph = 6 + Math.random() * 2.5;
+    let turbidity = 5 + Math.random() * 45;
+    let dissolved_oxygen = 3 + Math.random() * 6;
+    let conductivity = 150 + Math.random() * 450;
+    let ammonia_nitrogen = 0.05 + Math.random() * 0.45;
+    let total_phosphorus = 0.01 + Math.random() * 0.19;
+
+    // 石門水庫第50-54條（即第22-26條索引，0-based: 21-25）模擬工業區污染事件
+    if (siteId === 1 && i >= 21 && i <= 25) {
+      turbidity = 180 + Math.random() * 60;
+      ph = 5.2 + Math.random() * 1.2;
+      ammonia_nitrogen = 1.5 + Math.random() * 1.0;
+    }
+    records.push({
+      timestamp: dt.toISOString(),
+      temperature: Math.round(temp * 10) / 10,
+      pH: Math.round(ph * 10) / 10,
+      turbidity: Math.round(turbidity),
+      dissolved_oxygen: Math.round(dissolved_oxygen * 10) / 10,
+      conductivity: Math.round(conductivity),
+      ammonia_nitrogen: Math.round(ammonia_nitrogen * 100) / 100,
+      total_phosphorus: Math.round(total_phosphorus * 100) / 100
+    });
+  }
+  return records;
+}
+
+const SENSOR_DATA = {};
+SITES.forEach(s => { SENSOR_DATA[s.id] = generateSensorData(s.id); });
+
+// NB-IoT設備
+const NB_IOT_DEVICES = [
+  {device_id:'NBIOT-TW-001', site_id:1, signal:-78, battery:92, last_comms:'2026-06-28T10:15:00Z'},
+  {device_id:'NBIOT-TW-002', site_id:2, signal:-65, battery:88, last_comms:'2026-06-28T10:12:00Z'},
+  {device_id:'NBIOT-TW-003', site_id:3, signal:-82, battery:45, last_comms:'2026-06-28T09:58:00Z'},
+  {device_id:'NBIOT-TW-004', site_id:4, signal:-71, battery:76, last_comms:'2026-06-28T10:14:00Z'},
+  {device_id:'NBIOT-TW-005', site_id:5, signal:-59, battery:95, last_comms:'2026-06-28T10:16:00Z'}
+];
+
+// 歷史警報
+const ALERTS = [
+  {id:1, time:'2026-06-28T08:32:00Z', site_id:1, site_name:'石門水庫上游', type:'pollution', level:'high', message:'濁度異常升高至215 NTU，疑似工業廢水排放', read:false},
+  {id:2, time:'2026-06-28T07:15:00Z', site_id:1, site_name:'石門水庫上游', type:'pollution', level:'high', message:'濁度持續超標 198 NTU', read:false},
+  {id:3, time:'2026-06-27T22:00:00Z', site_id:1, site_name:'石門水庫上游', type:'pollution', level:'medium', message:'濁度達 185 NTU，超過警戒值', read:true},
+  {id:4, time:'2026-06-27T18:30:00Z', site_id:3, site_name:'基隆河汐止', type:'abnormal_ph', level:'medium', message:'pH值降至5.6，低於正常範圍', read:true},
+  {id:5, time:'2026-06-27T14:00:00Z', site_id:3, site_name:'基隆河汐止', type:'abnormal_ph', level:'medium', message:'pH值降至5.3，持續偏低', read:false},
+  {id:6, time:'2026-06-26T09:45:00Z', site_id:5, site_name:'蘭陽溪員山', type:'low_battery', level:'low', message:'NB-IoT設備 NBIOT-TW-005 電量低於15%', read:false}
+];
+
+// 商城產品
+const PRODUCTS = [
+  {id:1, name:'基礎監測套件', desc:'NB-IoT主控+溫度/pH感測器，適合一般河川', price:1750},
+  {id:2, name:'專業監測套件', desc:'全參數監測：溫度/pH/濁度/溶氧/導電度/氨氮/總磷', price:3200},
+  {id:3, name:'濁度感測模組', desc:'高精度光學濁度計，量程0-1000 NTU', price:450},
+  {id:4, name:'太陽能供電包', desc:'20W太陽能板+鋰電池組，確保野外持續運作', price:600}
+];
+
+// NB-IoT接收數據陣列
+let nbIotReceivedData = [];
+
+// ========== 工具函數 ==========
+function formatTime(isoStr) {
+  const d = new Date(isoStr);
+  return `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+}
+function formatDate(isoStr) {
+  const d = new Date(isoStr);
+  return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`;
+}
+function getLatest(siteId) {
+  const arr = SENSOR_DATA[siteId];
+  return arr[arr.length - 1];
+}
+
+// ========== Tab 切換 ==========
+let currentTab = 'dashboard';
+const charts = {};
+
+document.getElementById('tabNav').addEventListener('click', e => {
+  const btn = e.target.closest('.tab-btn');
+  if (!btn) return;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentTab = btn.dataset.tab;
+  renderTab(currentTab);
+});
+
+// ========== 渲染引擎 ==========
+function renderTab(tab) {
+  const area = document.getElementById('contentArea');
+  switch(tab) {
+    case 'dashboard': renderDashboard(area); break;
+    case 'stations': renderStations(area); break;
+    case 'realtime': renderRealtime(area); break;
+    case 'alerts': renderAlerts(area); break;
+    case 'export': renderExport(area); break;
+    case 'map': renderMap(area); break;
+    case 'trends': renderTrends(area); break;
+    case 'devices': renderDevices(area); break;
+    case 'nbiot': renderNBIoT(area); break;
+  }
+}
+
+// ====== 1. 儀表板 ======
+function renderDashboard(area) {
+  const totalStations = SITES.length;
+  const unreadAlerts = ALERTS.filter(a => !a.read).length;
+  const avgWqi = (SITES.reduce((sum, s) => {
+    const d = getLatest(s.id);
+    return sum + (d.pH >= 6.5 && d.pH <= 8.5 ? 80 : 50) + (d.turbidity < 50 ? 85 : d.turbidity < 100 ? 65 : 40);
+  }, 0) / SITES.length / 2).toFixed(1);
+  const onlineRate = '100%';
+
+  area.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi-card glass"><div class="icon">&#x1F4CD;</div><div class="value">${totalStations}</div><div class="label">監測站總數</div><div class="change" style="color:var(--eco-green)">全部在線</div></div>
+      <div class="kpi-card glass"><div class="icon">&#x1F514;</div><div class="value">${unreadAlerts}</div><div class="label">今日警報</div><div class="change" style="color:var(--alert-orange)">${unreadAlerts} 條未讀</div></div>
+      <div class="kpi-card glass"><div class="icon">&#x1F4CA;</div><div class="value">${avgWqi}</div><div class="label">平均水質指數</div><div class="change" style="color:var(--eco-green)">良好</div></div>
+      <div class="kpi-card glass"><div class="icon">&#x1F4E1;</div><div class="value">${onlineRate}</div><div class="label">設備在線率</div><div class="change" style="color:var(--eco-green)">正常</div></div>
+    </div>
+    <div class="section-title">溫度與濁度趨勢</div>
+    <div class="chart-container glass" style="padding:16px;"><canvas id="dashboardTrendChart"></canvas></div>
+    <div class="section-title">監測站概覽</div>
+    <div class="site-grid" id="dashboardSiteGrid"></div>
+  `;
+
+  // 趨勢圖
+  const ctx = document.getElementById('dashboardTrendChart').getContext('2d');
+  const labels = SENSOR_DATA[1].map(r => formatTime(r.timestamp).slice(5));
+  charts.dashboard = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: '溫度 (°C)', data: SENSOR_DATA[1].map(r => r.temperature), borderColor: '#E8833A', backgroundColor: 'rgba(232,131,58,0.1)', yAxisID: 'y', tension: 0.3, fill: false },
+        { label: '濁度 (NTU)', data: SENSOR_DATA[1].map(r => r.turbidity), borderColor: '#3A9BD5', backgroundColor: 'rgba(58,155,213,0.1)', yAxisID: 'y1', tension: 0.3, fill: false }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#8899AA' } } },
+      scales: {
+        x: { ticks: { color: '#8899AA', maxTicksLimit: 10 }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { type: 'linear', position: 'left', title: { display: true, text: '溫度 (°C)', color: '#E8833A' }, ticks: { color: '#E8833A' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y1: { type: 'linear', position: 'right', title: { display: true, text: '濁度 (NTU)', color: '#3A9BD5' }, ticks: { color: '#3A9BD5' }, grid: { drawOnChartArea: false } }
+      }
+    }
+  });
+
+  // 站點卡片
+  const grid = document.getElementById('dashboardSiteGrid');
+  SITES.forEach(s => {
+    const d = getLatest(s.id);
+    const card = document.createElement('div');
+    card.className = 'site-card glass';
+    card.innerHTML = `
+      <div class="site-name">${s.name}</div>
+      <div class="site-loc">${s.description.slice(0,20)}...</div>
+      <div class="site-metrics">
+        <div class="metric"><span class="mval">${d.temperature}°C</span><span class="mlbl">溫度</span></div>
+        <div class="metric"><span class="mval">${d.pH}</span><span class="mlbl">pH</span></div>
+        <div class="metric"><span class="mval">${d.turbidity} NTU</span><span class="mlbl">濁度</span></div>
+      </div>
+      <span class="status online">在線</span>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+// ====== 2. 監測站管理 ======
+function renderStations(area) {
+  area.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div class="section-title" style="margin-bottom:0;">監測站列表</div>
+      <button class="btn btn-primary" onclick="openStationModal()">+ 新增監測站</button>
+    </div>
+    <div class="glass" style="overflow-x:auto;">
+      <table class="data-table" id="stationsTable">
+        <thead><tr><th>ID</th><th>名稱</th><th>緯度</th><th>經度</th><th>描述</th><th>操作</th></tr></thead>
+        <tbody id="stationsTbody"></tbody>
+      </table>
+    </div>
+    <div class="modal-overlay" id="stationModal">
+      <div class="modal">
+        <h3 id="stationModalTitle">新增監測站</h3>
+        <div class="form-group"><label>監測站名稱</label><input id="sName"></div>
+        <div class="form-group"><label>緯度</label><input id="sLat" type="number" step="0.001"></div>
+        <div class="form-group"><label>經度</label><input id="sLng" type="number" step="0.001"></div>
+        <div class="form-group"><label>描述</label><textarea id="sDesc"></textarea></div>
+        <input type="hidden" id="sEditId">
+        <div class="modal-actions">
+          <button class="btn btn-outline" onclick="closeStationModal()">取消</button>
+          <button class="btn btn-primary" onclick="saveStation()">儲存</button>
+        </div>
+      </div>
+    </div>
+  `;
+  refreshStationsTable();
+}
+function refreshStationsTable() {
+  const tbody = document.getElementById('stationsTbody');
+  tbody.innerHTML = SITES.map(s => `
+    <tr>
+      <td>${s.id}</td>
+      <td><a href="#" onclick="expandStationRow(event,${s.id})" style="color:var(--stream-blue);text-decoration:none;">${s.name}</a></td>
+      <td>${s.lat}</td>
+      <td>${s.lng}</td>
+      <td>${s.description.slice(0,25)}...</td>
+      <td>
+        <button class="btn btn-sm btn-outline" onclick="editStation(${s.id})">編輯</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteStation(${s.id})">刪除</button>
+      </td>
+    </tr>
+  `).join('');
+}
+function expandStationRow(e, id) {
+  e.preventDefault();
+  const existing = document.querySelector(`.detail-row[data-site="${id}"]`);
+  if (existing) { existing.remove(); return; }
+  const s = SITES.find(x => x.id === id);
+  const d = getLatest(id);
+  const tr = document.createElement('tr');
+  tr.className = 'detail-row'; tr.dataset.site = id;
+  tr.innerHTML = `<td colspan="6">
+    <div class="detail-content">
+      <div><strong>最新溫度</strong><br>${d.temperature} °C</div>
+      <div><strong>最新pH</strong><br>${d.pH}</div>
+      <div><strong>最新濁度</strong><br>${d.turbidity} NTU</div>
+      <div><strong>溶氧</strong><br>${d.dissolved_oxygen} mg/L</div>
+      <div><strong>導電度</strong><br>${d.conductivity} µS/cm</div>
+      <div><strong>氨氮</strong><br>${d.ammonia_nitrogen} mg/L</div>
+      <div><strong>總磷</strong><br>${d.total_phosphorus} mg/L</div>
+      <div><strong>完整描述</strong><br>${s.description}</div>
+    </div>
+  </td>`;
+  e.target.closest('tr').after(tr);
+}
+function openStationModal(id) {
+  document.getElementById('stationModal').classList.add('show');
+  if (id) {
+    const s = SITES.find(x => x.id === id);
+    document.getElementById('stationModalTitle').textContent = '編輯監測站';
+    document.getElementById('sName').value = s.name;
+    document.getElementById('sLat').value = s.lat;
+    document.getElementById('sLng').value = s.lng;
+    document.getElementById('sDesc').value = s.description;
+    document.getElementById('sEditId').value = id;
+  } else {
+    document.getElementById('stationModalTitle').textContent = '新增監測站';
+    document.getElementById('sName').value = '';
+    document.getElementById('sLat').value = '';
+    document.getElementById('sLng').value = '';
+    document.getElementById('sDesc').value = '';
+    document.getElementById('sEditId').value = '';
+  }
+}
+function closeStationModal() { document.getElementById('stationModal').classList.remove('show'); }
+function saveStation() {
+  const editId = document.getElementById('sEditId').value;
+  const name = document.getElementById('sName').value.trim();
+  const lat = parseFloat(document.getElementById('sLat').value);
+  const lng = parseFloat(document.getElementById('sLng').value);
+  const desc = document.getElementById('sDesc').value.trim();
+  if (!name || isNaN(lat) || isNaN(lng)) { alert('請填寫完整資訊'); return; }
+  if (editId) {
+    const s = SITES.find(x => x.id == editId);
+    s.name = name; s.lat = lat; s.lng = lng; s.description = desc;
+  } else {
+    const newId = Math.max(...SITES.map(x => x.id)) + 1;
+    SITES.push({id: newId, name, lat, lng, description: desc});
+    SENSOR_DATA[newId] = generateSensorData(newId);
+  }
+  closeStationModal();
+  refreshStationsTable();
+  if (currentTab === 'dashboard') renderDashboard(document.getElementById('contentArea'));
+}
+function deleteStation(id) {
+  if (!confirm(`確定要刪除監測站 ID=${id} 嗎？此操作不可復原。`)) return;
+  const idx = SITES.findIndex(x => x.id === id);
+  if (idx >= 0) SITES.splice(idx, 1);
+  delete SENSOR_DATA[id];
+  refreshStationsTable();
+  if (currentTab === 'dashboard') renderDashboard(document.getElementById('contentArea'));
+}
+function editStation(id) { openStationModal(id); }
+
+// ====== 3. 即時數據 ======
+let realtimeInterval = null;
+function renderRealtime(area) {
+  area.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div class="section-title" style="margin-bottom:0;">即時監測數據</div>
+      <span style="color:var(--text-secondary);font-size:0.78rem;">自動更新倒數：<span id="realtimeCountdown">30</span> 秒</span>
+    </div>
+    <div class="glass" style="overflow-x:auto;">
+      <table class="data-table" id="realtimeTable">
+        <thead><tr><th>站點</th><th>時間</th><th>溫度 (°C)</th><th>pH</th><th>濁度 (NTU)</th><th>溶氧 (mg/L)</th><th>導電度 (µS/cm)</th><th>氨氮 (mg/L)</th><th>總磷 (mg/L)</th><th>狀態</th></tr></thead>
+        <tbody id="realtimeTbody"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:12px;font-size:0.75rem;color:var(--text-secondary);">示範資料：由瀏覽器端即時模擬生成，每 30 秒隨機微調 ±5%，非真實量測結果</div>
+  `;
+  updateRealtimeTable();
+  startRealtimeCountdown();
+}
+function updateRealtimeTable() {
+  const tbody = document.getElementById('realtimeTbody');
+  tbody.innerHTML = SITES.map(s => {
+    const d = getLatest(s.id);
+    const status = d.turbidity > 100 ? '<span style="color:#E74C3C;">異常</span>' : '<span style="color:var(--eco-green);">正常</span>';
+    return `<tr>
+      <td>${s.name}</td><td>${formatTime(d.timestamp)}</td>
+      <td>${d.temperature}</td><td>${d.pH}</td><td>${d.turbidity}</td>
+      <td>${d.dissolved_oxygen}</td><td>${d.conductivity}</td>
+      <td>${d.ammonia_nitrogen}</td><td>${d.total_phosphorus}</td>
+      <td>${status}</td>
+    </tr>`;
+  }).join('');
+}
+function startRealtimeCountdown() {
+  if (realtimeInterval) clearInterval(realtimeInterval);
+  let sec = 30;
+  const el = document.getElementById('realtimeCountdown');
+  realtimeInterval = setInterval(() => {
+    sec--; el.textContent = sec;
+    if (sec <= 0) {
+      sec = 30;
+      // 微調數據 ±5%
+      SITES.forEach(s => {
+        const arr = SENSOR_DATA[s.id];
+        const last = arr[arr.length - 1];
+        const perturb = () => 0.95 + Math.random() * 0.1;
+        last.temperature = Math.round(last.temperature * perturb() * 10) / 10;
+        last.turbidity = Math.round(last.turbidity * perturb());
+        last.pH = Math.round(last.pH * perturb() * 10) / 10;
+        last.dissolved_oxygen = Math.round(last.dissolved_oxygen * perturb() * 10) / 10;
+        last.conductivity = Math.round(last.conductivity * perturb());
+        last.ammonia_nitrogen = Math.round(last.ammonia_nitrogen * perturb() * 100) / 100;
+        last.total_phosphorus = Math.round(last.total_phosphorus * perturb() * 100) / 100;
+      });
+      updateRealtimeTable();
+    }
+  }, 1000);
+}
+
+// ====== 4. 報警系統 ======
+function renderAlerts(area) {
+  area.innerHTML = `
+    <div class="section-title">報警列表</div>
+    <div class="filter-bar" id="alertFilter">
+      <button class="btn btn-sm btn-primary" data-filter="all">全部</button>
+      <button class="btn btn-sm btn-outline" data-filter="unread">未讀</button>
+      <button class="btn btn-sm btn-outline" data-filter="read">已讀</button>
+      <span style="color:var(--text-secondary);font-size:0.78rem;margin-left:auto;">點擊「標記已讀」即可處理</span>
+    </div>
+    <div class="glass" style="overflow-x:auto;">
+      <table class="data-table" id="alertsTable">
+        <thead><tr><th></th><th>時間</th><th>站點</th><th>類型</th><th>等級</th><th>訊息</th><th>操作</th></tr></thead>
+        <tbody id="alertsTbody"></tbody>
+      </table>
+    </div>
+  `;
+  renderAlertTable('all');
+  document.getElementById('alertFilter').addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    document.querySelectorAll('#alertFilter button').forEach(b => { b.className = 'btn btn-sm btn-outline'; });
+    btn.className = 'btn btn-sm btn-primary';
+    renderAlertTable(btn.dataset.filter);
+  });
+}
+function renderAlertTable(filter) {
+  const filtered = ALERTS.filter(a => filter === 'all' || (filter === 'unread' ? !a.read : a.read));
+  const tbody = document.getElementById('alertsTbody');
+  const typeBadge = t => t === 'pollution' ? 'badge-pollution' : t === 'abnormal_ph' ? 'badge-abnormal_ph' : 'badge-low_battery';
+  tbody.innerHTML = filtered.map(a => `
+    <tr>
+      <td><span class="alert-dot ${a.read ? 'read' : 'unread'}"></span></td>
+      <td>${formatTime(a.time)}</td><td>${a.site_name}</td>
+      <td><span class="badge ${typeBadge(a.type)}">${a.type}</span></td>
+      <td>${a.level}</td><td>${a.message}</td>
+      <td>${a.read ? '已讀' : `<button class="btn btn-sm btn-outline" onclick="markAlertRead(${a.id})">標記已讀</button>`}</td>
+    </tr>
+  `).join('');
+}
+function markAlertRead(id) {
+  const alert = ALERTS.find(a => a.id === id);
+  if (alert) alert.read = true;
+  const activeFilter = document.querySelector('#alertFilter .btn-primary')?.dataset?.filter || 'all';
+  renderAlertTable(activeFilter);
+}
+
+// ====== 5. 數據匯出 ======
+function renderExport(area) {
+  area.innerHTML = `
+    <div class="section-title">數據匯出</div>
+    <div class="filter-bar">
+      <select id="exportSite"><option value="all">全部站點</option>${SITES.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}</select>
+      <input type="date" id="exportStart" value="2026-06-21">
+      <span style="color:var(--text-secondary);">至</span>
+      <input type="date" id="exportEnd" value="2026-06-28">
+      <button class="btn btn-primary" onclick="previewExport()">預覽</button>
+      <button class="btn btn-success" onclick="exportCSV()">匯出 CSV</button>
+    </div>
+    <div class="glass" style="overflow-x:auto;max-height:500px;overflow-y:auto;">
+      <table class="data-table" id="exportTable">
+        <thead><tr><th>站點</th><th>時間</th><th>溫度</th><th>pH</th><th>濁度</th><th>溶氧</th><th>導電度</th><th>氨氮</th><th>總磷</th></tr></thead>
+        <tbody id="exportTbody"><tr><td colspan="9" style="text-align:center;color:var(--text-secondary);">請選擇條件後點擊「預覽」</td></tr></tbody>
+      </table>
+    </div>
+  `;
+  window._exportData = [];
+}
+function previewExport() {
+  const siteId = document.getElementById('exportSite').value;
+  const start = document.getElementById('exportStart').value;
+  const end = document.getElementById('exportEnd').value;
+  const siteIds = siteId === 'all' ? SITES.map(s => s.id) : [parseInt(siteId)];
+  const rows = [];
+  siteIds.forEach(sid => {
+    const site = SITES.find(s => s.id === sid);
+    SENSOR_DATA[sid].forEach(d => {
+      const dStr = formatDate(d.timestamp);
+      if (dStr >= start && dStr <= end) {
+        rows.push([site.name, formatTime(d.timestamp), d.temperature, d.pH, d.turbidity, d.dissolved_oxygen, d.conductivity, d.ammonia_nitrogen, d.total_phosphorus]);
+      }
+    });
+  });
+  window._exportData = rows;
+  const tbody = document.getElementById('exportTbody');
+  tbody.innerHTML = rows.length === 0
+    ? '<tr><td colspan="9" style="text-align:center;color:var(--text-secondary);">無符合條件的數據</td></tr>'
+    : rows.map(r => `<tr>${r.map(v => `<td>${v}</td>`).join('')}</tr>`).join('');
+}
+function exportCSV() {
+  if (!window._exportData || window._exportData.length === 0) { alert('請先預覽數據'); return; }
+  const header = '站點,時間,溫度(°C),pH,濁度(NTU),溶氧(mg/L),導電度(µS/cm),氨氮(mg/L),總磷(mg/L)';
+  const csv = header + '\n' + window._exportData.map(r => r.join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], {type: 'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `water_quality_export_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ====== 6. 地圖顯示 ======
+let mapInstance = null;
+function renderMap(area) {
+  area.innerHTML = `<div class="section-title">監測站地圖</div><div class="map-container" id="mapContainer"></div>`;
+  setTimeout(() => {
+    if (mapInstance) { mapInstance.remove(); mapInstance = null; }
+    mapInstance = L.map('mapContainer').setView([24.9, 121.5], 9);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+      maxZoom: 18
+    }).addTo(mapInstance);
+    const markerColors = ['#E74C3C','#3A9BD5','#E8833A','#5DAD65','#1A6B5A'];
+    SITES.forEach((s, i) => {
+      const d = getLatest(s.id);
+      const marker = L.circleMarker([s.lat, s.lng], {
+        radius: 10, fillColor: markerColors[i], color: '#fff', weight: 2, fillOpacity: 0.85
+      }).addTo(mapInstance);
+      marker.bindPopup(`
+        <div style="font-family:'PingFang TC',sans-serif;font-size:0.85rem;">
+          <strong style="font-size:0.95rem;">${s.name}</strong><br>
+          <span style="color:#8899AA;">${s.description}</span><br>
+          <span>溫度: ${d.temperature}°C | pH: ${d.pH} | 濁度: ${d.turbidity} NTU</span><br>
+          <span style="color:var(--eco-green);">狀態: 在線</span>
+        </div>
+      `);
+    });
+  }, 100);
+}
+
+// ====== 7. 歷史趨勢 ======
+function renderTrends(area) {
+  area.innerHTML = `
+    <div class="section-title">歷史趨勢分析</div>
+    <div class="filter-bar">
+      <select id="trendSite">${SITES.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}</select>
+      <div class="checkbox-group" id="trendParams">
+        <label><input type="checkbox" value="temperature" checked> 溫度</label>
+        <label><input type="checkbox" value="pH" checked> pH</label>
+        <label><input type="checkbox" value="turbidity" checked> 濁度</label>
+        <label><input type="checkbox" value="dissolved_oxygen"> 溶氧</label>
+        <label><input type="checkbox" value="conductivity"> 導電度</label>
+        <label><input type="checkbox" value="ammonia_nitrogen"> 氨氮</label>
+        <label><input type="checkbox" value="total_phosphorus"> 總磷</label>
+      </div>
+      <button class="btn btn-primary" onclick="updateTrendChart()">更新圖表</button>
+    </div>
+    <div class="chart-container glass" style="padding:16px;"><canvas id="trendChart"></canvas></div>
+    <div class="glass" style="overflow-x:auto;margin-top:14px;">
+      <table class="data-table" id="trendStatsTable"><thead><tr><th>參數</th><th>最小值</th><th>最大值</th><th>平均值</th></tr></thead><tbody id="trendStatsTbody"></tbody></table>
+    </div>
+  `;
+  updateTrendChart();
+  document.getElementById('trendSite').addEventListener('change', updateTrendChart);
+}
+function updateTrendChart() {
+  const siteId = parseInt(document.getElementById('trendSite').value);
+  const params = [...document.querySelectorAll('#trendParams input:checked')].map(c => c.value);
+  const data = SENSOR_DATA[siteId];
+  const labels = data.map(r => formatTime(r.timestamp).slice(5));
+  const colors = {temperature:'#E8833A', pH:'#3A9BD5', turbidity:'#5DAD65', dissolved_oxygen:'#3498DB', conductivity:'#9B59B6', ammonia_nitrogen:'#E74C3C', total_phosphorus:'#F1C40F'};
+  const names = {temperature:'溫度 (°C)', pH:'pH', turbidity:'濁度 (NTU)', dissolved_oxygen:'溶氧 (mg/L)', conductivity:'導電度 (µS/cm)', ammonia_nitrogen:'氨氮 (mg/L)', total_phosphorus:'總磷 (mg/L)'};
+  const datasets = params.map(p => ({
+    label: names[p], data: data.map(r => r[p]), borderColor: colors[p], tension: 0.3, fill: false, pointRadius: 1
+  }));
+  if (charts.trend) charts.trend.destroy();
+  const ctx = document.getElementById('trendChart').getContext('2d');
+  charts.trend = new Chart(ctx, {
+    type: 'line', data: {labels, datasets},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#8899AA', usePointStyle: true } } },
+      scales: {
+        x: { ticks: { color: '#8899AA', maxTicksLimit: 10 }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { ticks: { color: '#8899AA' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+      }
+    }
+  });
+  // 統計表
+  const tbody = document.getElementById('trendStatsTbody');
+  tbody.innerHTML = params.map(p => {
+    const vals = data.map(r => r[p]);
+    const min = Math.min(...vals); const max = Math.max(...vals);
+    const avg = (vals.reduce((a,b) => a + b, 0) / vals.length).toFixed(2);
+    return `<tr><td>${names[p]}</td><td>${typeof min === 'number' ? min.toFixed(2) : min}</td><td>${typeof max === 'number' ? max.toFixed(2) : max}</td><td>${avg}</td></tr>`;
+  }).join('');
+}
+
+// ====== 8. 設備管理 ======
+function renderDevices(area) {
+  area.innerHTML = `
+    <div class="section-title">NB-IoT 設備管理</div>
+    <div class="glass" style="overflow-x:auto;margin-bottom:14px;">
+      <table class="data-table" id="devicesTable">
+        <thead><tr><th>設備 ID</th><th>歸屬站點</th><th>訊號強度 (dBm)</th><th>電池 (%)</th><th>上次通訊</th><th>操作</th></tr></thead>
+        <tbody id="devicesTbody"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:8px;font-size:0.78rem;color:var(--text-secondary);">點擊「觸發模擬數據發送」將隨機生成一條測試數據並送往 NB-IoT 數據接收模組。</div>
+  `;
+  refreshDevicesTable();
+}
+function refreshDevicesTable() {
+  const tbody = document.getElementById('devicesTbody');
+  tbody.innerHTML = NB_IOT_DEVICES.map(d => {
+    const site = SITES.find(s => s.id === d.site_id);
+    const batStyle = d.battery < 20 ? 'color:#E74C3C;font-weight:600;' : d.battery < 50 ? 'color:#F1C40F;' : '';
+    return `<tr>
+      <td>${d.device_id}</td><td>${site?.name || '未知'}</td>
+      <td>${d.signal} dBm</td><td style="${batStyle}">${d.battery}%</td>
+      <td>${formatTime(d.last_comms)}</td>
+      <td><button class="btn btn-sm btn-outline" onclick="triggerSimulatedData('${d.device_id}')">觸發模擬數據發送</button></td>
+    </tr>`;
+  }).join('');
+}
+function triggerSimulatedData(deviceId) {
+  const dev = NB_IOT_DEVICES.find(d => d.device_id === deviceId);
+  if (!dev) return;
+  const siteId = dev.site_id;
+  const temp = 18 + Math.random() * 10;
+  const ph = 5.5 + Math.random() * 3.5;
+  const turbidity = 5 + Math.random() * 120;
+  const battery = dev.battery - Math.random() * 8;
+  dev.battery = Math.max(0, Math.round(battery));
+  dev.last_comms = new Date().toISOString();
+  dev.signal = Math.round(-50 - Math.random() * 40);
+  const payload = {
+    device_id: deviceId,
+    site_id: siteId,
+    timestamp: new Date().toISOString(),
+    temperature: Math.round(temp * 10) / 10,
+    pH: Math.round(ph * 10) / 10,
+    turbidity: Math.round(turbidity),
+    battery: dev.battery
+  };
+  nbIotReceivedData.push(payload);
+  // 異常檢測
+  const logs = [];
+  if (turbidity > 100) logs.push({level:'warn', msg:`⚠️ ${deviceId} 濁度 ${Math.round(turbidity)} NTU 超標 → pollution 警報`});
+  if (ph < 6 || ph > 9) logs.push({level:'warn', msg:`⚠️ ${deviceId} pH ${ph.toFixed(1)} 異常 → abnormal_ph 警報`});
+  if (dev.battery < 15) logs.push({level:'error', msg:`🔋 ${deviceId} 電量 ${dev.battery}% 過低 → low_battery 警報`});
+  refreshDevicesTable();
+  alert(`設備 ${deviceId} 已發送模擬數據。\n${logs.length > 0 ? logs.map(l => l.msg).join('\n') : '✓ 數據正常，無異常警報'}`);
+}
+
+// ====== 9. NB-IoT 數據接收 ======
+function renderNBIoT(area) {
+  area.innerHTML = `
+    <div class="section-title">NB-IoT 數據接收模擬</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div>
+        <div class="form-group"><label>JSON Payload（模擬 NB-IoT 上行數據）</label></div>
+        <textarea class="payload-editor" id="nbiotPayload">{
+  "device_id": "NBIOT-TW-001",
+  "site_id": 1,
+  "timestamp": "${new Date().toISOString()}",
+  "temperature": 22.5,
+  "pH": 7.2,
+  "turbidity": 85,
+  "dissolved_oxygen": 5.8,
+  "conductivity": 320,
+  "ammonia_nitrogen": 0.35,
+  "total_phosphorus": 0.12,
+  "battery": 88,
+  "signal_strength": -78
+}</textarea>
+        <button class="btn btn-primary" style="margin-top:10px;" onclick="sendNBIoTData()">發送數據</button>
+        <button class="btn btn-outline" style="margin-top:10px;margin-left:8px;" onclick="document.getElementById('nbiotPayload').value=JSON.stringify({device_id:'NBIOT-TW-001',site_id:1,timestamp:new Date().toISOString(),temperature:18+(Math.random()*10).toFixed(1),pH:(6+Math.random()*3.5).toFixed(1),turbidity:Math.round(5+Math.random()*200),dissolved_oxygen:(3+Math.random()*6).toFixed(1),conductivity:Math.round(150+Math.random()*450),ammonia_nitrogen:(0.05+Math.random()*2).toFixed(2),total_phosphorus:(0.01+Math.random()*0.5).toFixed(2),battery:Math.round(10+Math.random()*90),signal_strength:Math.round(-50-Math.random()*40)},null,2)">產生隨機 Payload</button>
+      </div>
+      <div>
+        <div class="form-group"><label>接收日誌與異常檢測</label></div>
+        <div class="log-panel" id="nbiotLog">
+          <div style="color:var(--text-secondary);">等待數據接收...</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+function sendNBIoTData() {
+  const raw = document.getElementById('nbiotPayload').value;
+  let data;
+  try { data = JSON.parse(raw); } catch(e) { alert('JSON 格式錯誤：' + e.message); return; }
+  if (!data.timestamp) data.timestamp = new Date().toISOString();
+  nbIotReceivedData.push(data);
+  // 異常檢測
+  const alerts = [];
+  if (data.turbidity && data.turbidity > 100) alerts.push({type:'pollution', msg:`濁度 ${data.turbidity} NTU 超標（>100）`});
+  if (data.pH && (data.pH < 6 || data.pH > 9)) alerts.push({type:'abnormal_ph', msg:`pH ${data.pH} 異常（正常範圍 6-9）`});
+  if (data.battery !== undefined && data.battery < 15) alerts.push({type:'low_battery', msg:`電量 ${data.battery}% 過低（<15%）`});
+  // 更新日誌
+  const log = document.getElementById('nbiotLog');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  const time = new Date().toLocaleTimeString('zh-TW', {hour12:false});
+  if (alerts.length > 0) {
+    entry.classList.add('warn');
+    entry.innerHTML = `<span class="time">${time}</span> 收到 ${data.device_id || 'unknown'} → ${alerts.map(a => a.msg).join(' | ')}`;
+  } else {
+    entry.innerHTML = `<span class="time">${time}</span> 收到 ${data.device_id || 'unknown'} → ✓ 數據正常`;
+  }
+  log.insertBefore(entry, log.firstChild);
+  if (log.children.length > 50) log.removeChild(log.lastChild);
+}
+
+// ========== 初始化 ==========
+renderTab('dashboard');
+
+// PWA：註冊 Service Worker（離線快取）
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

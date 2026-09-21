@@ -1,0 +1,28 @@
+{
+  "name": "野溪守護者 WildStream Guardian",
+  "short_name": "野溪守護者",
+  "description": "河川水質監測平台示範版：監測站管理、即時數據、異常警報、地圖定位、歷史趨勢與資料匯出。",
+  "lang": "zh-Hant",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0F1923",
+  "theme_color": "#0F1923",
+  "categories": ["productivity", "utilities", "education"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
