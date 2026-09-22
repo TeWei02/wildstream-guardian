@@ -1,7 +1,7 @@
 /* 野溪守護者 WildStream Guardian — Service Worker
  * 策略：同源靜態資源採 cache-first（離線可用）；跨域資源（地圖圖磚）直接走網路，不快取。
  */
-const CACHE = 'wildstream-guardian-v1';
+const CACHE = 'wildstream-guardian-v2';
 
 const ASSETS = [
   './',
