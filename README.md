@@ -2,6 +2,17 @@
 
 **Language:** [![中文](https://img.shields.io/badge/%E4%B8%AD%E6%96%87-%E4%B8%AD%E6%96%87%E7%89%88-blue?style=flat-square)](README.md) [![English](https://img.shields.io/badge/English-English-blue?style=flat-square)](README.en.md)
 
+<div align="center">
+
+# Demo Preview
+
+全端河川水質監測平台：即時儀表板、多參數趨勢圖、異常警示、測站地圖與多語言介面（繁中 / 簡中 / EN / 日本語），支援 PWA 離線安裝。
+
+<video controls width="640" src="assets/demo-preview.webm"></video>
+
+</div>
+
+
 [![Python](https://img.shields.io/badge/Python-3.10+-%233776AB?logo=python)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Latest-%23009688?logo=fastapi)](https://fastapi.tiangolo.com/)
 [![SQLite](https://img.shields.io/badge/SQLite-3-%23003B57?logo=sqlite)](https://www.sqlite.org/)
